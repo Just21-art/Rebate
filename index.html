@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Rebate - Alpha 0.1</title>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background: #222; touch-action: none; }
+        canvas { display: block; }
+        #ui { position: absolute; top: 10px; left: 10px; color: white; font-family: Arial; font-size: 14px; z-index: 10; pointer-events: none; }
+        #joystick-base {
+            position: absolute; bottom: 50px; left: 50px; width: 120px; height: 120px;
+            background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%; z-index: 20; display: none;
+        }
+        #joystick-stick {
+            position: absolute; top: 35px; left: 35px; width: 50px; height: 50px;
+            background: rgba(255,255,255,0.4); border-radius: 50%; z-index: 21;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">Rebate Alpha 0.1<br>WASD / Стрелки для движения</div>
+    <div id="joystick-base"><div id="joystick-stick"></div></div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let W, H;
+        const tileSize = 100; // Размер одной клетки (квартала)
+
+        function resize() {
+            W = canvas.width = window.innerWidth;
+            H = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- ГОРОД ---
+        // Создаем сетку. 0 - дорога, 1 - здание.
+        const map = [
+            [1, 1, 1, 0, 1, 1, 1],
+            [1, 1, 1, 0, 1, 1, 1],
+            [0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 0, 1, 1, 1],
+            [1, 1, 1, 0, 1, 1, 1],
+            [1, 1, 1, 0, 1, 1, 1],
+            [0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 0, 1, 1, 1]
+        ];
+
+        // --- ИГРОК ---
+        const player = {
+            x: 3 * tileSize + tileSize/2, // Ставим на перекресток
+            y: 2 * tileSize + tileSize/2,
+            size: 30,
+            speed: 3,
+            angle: 0, // Угол поворота
+            color: '#ffd700'
+        };
+
+        // --- УПРАВЛЕНИЕ ---
+        const keys = {};
+        window.addEventListener('keydown', e => keys[e.key] = true);
+        window.addEventListener('keyup', e => keys[e.key] = false);
+
+        // Тач-управление
+        const joyBase = document.getElementById('joystick-base');
+        const joyStick = document.getElementById('joystick-stick');
+        let joyActive = false;
+        let joyStart = {x:0, y:0};
+        let joyDir = {x:0, y:0};
+
+        if ('ontouchstart' in window) {
+            joyBase.style.display = 'block';
+            canvas.addEventListener('touchstart', e => {
+                const touch = e.touches[0];
+                if (touch.clientX < W/2) {
+                    joyActive = true;
+                    joyStart = { x: touch.clientX, y: touch.clientY };
+                    joyBase.style.left = (touch.clientX - 60) + 'px';
+                    joyBase.style.top = (touch.clientY - 60) + 'px';
+                }
+            });
+            canvas.addEventListener('touchmove', e => {
+                if (!joyActive) return;
+                const touch = e.touches[0];
+                let dx = touch.clientX - joyStart.x;
+                let dy = touch.clientY - joyStart.y;
+                let dist = Math.hypot(dx, dy);
+                if (dist > 40) { dx = dx/dist*40; dy = dy/dist*40; }
+                joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
+                joyDir = { x: dx/40, y: dy/40 };
+            });
+            canvas.addEventListener('touchend', () => {
+                joyActive = false;
+                joyStick.style.transform = 'translate(0px, 0px)';
+                joyDir = { x:0, y:0 };
+            });
+        }
+
+        // --- КОЛЛИЗИИ ---
+        function checkCollision(newX, newY) {
+            const half = player.size / 2;
+            const corners = [
+                {x: newX - half, y: newY - half},
+                {x: newX + half, y: newY - half},
+                {x: newX - half, y: newY + half},
+                {x: newX + half, y: newY + half}
+            ];
+            for (let c of corners) {
+                const gridX = Math.floor(c.x / tileSize);
+                const gridY = Math.floor(c.y / tileSize);
+                if (gridY >= 0 && gridY < map.length && gridX >= 0 && gridX < map[0].length) {
+                    if (map[gridY][gridX] === 1) return true; // Здание
+                } else {
+                    return true; // За краем карты
+                }
+            }
+            return false;
+        }
+
+        // --- ОБНОВЛЕНИЕ ---
+        function update() {
+            let moveX = 0;
+            let moveY = 0;
+
+            if (keys['w'] || keys['ArrowUp'] || joyDir.y < -0.3) moveY -= 1;
+            if (keys['s'] || keys['ArrowDown'] || joyDir.y > 0.3) moveY += 1;
+            if (keys['a'] || keys['ArrowLeft'] || joyDir.x < -0.3) moveX -= 1;
+            if (keys['d'] || keys['ArrowRight'] || joyDir.x > 0.3) moveX += 1;
+
+            if (moveX !== 0 || moveY !== 0) {
+                // Нормализация диагонали
+                const len = Math.hypot(moveX, moveY);
+                moveX = (moveX / len) * player.speed;
+                moveY = (moveY / len) * player.speed;
+
+                // Поворот в сторону движения (сглаженный)
+                let targetAngle = Math.atan2(moveY, moveX);
+                let diff = targetAngle - player.angle;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                player.angle += diff * 0.2;
+
+                const newX = player.x + moveX;
+                const newY = player.y + moveY;
+
+                // Проверка коллизий по осям отдельно (чтобы можно было скользить вдоль стен)
+                if (!checkCollision(newX, player.y)) player.x = newX;
+                if (!checkCollision(player.x, newY)) player.y = newY;
+            }
+        }
+
+        // --- ОТРИСОВКА ---
+        function draw() {
+            ctx.fillStyle = '#333'; // Асфальт
+            ctx.fillRect(0, 0, W, H);
+
+            // Рисуем город
+            for (let y = 0; y < map.length; y++) {
+                for (let x = 0; x < map[y].length; x++) {
+                    if (map[y][x] === 1) {
+                        // Здание
+                        ctx.fillStyle = '#555';
+                        ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+                        // Крыша
+                        ctx.fillStyle = '#444';
+                        ctx.fillRect(x * tileSize + 10, y * tileSize + 10, tileSize - 20, tileSize - 20);
+                        // Тень
+                        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                        ctx.fillRect(x * tileSize + 10, y * tileSize + 10, tileSize - 10, tileSize - 10);
+                    } else {
+                        // Дорога
+                        ctx.fillStyle = '#222';
+                        ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+                        // Разметка
+                        ctx.strokeStyle = '#ffaa00';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([20, 20]);
+                        ctx.beginPath();
+                        if (map[y][x] === 0) {
+                            // Горизонтальная дорога
+                            ctx.moveTo(x * tileSize, y * tileSize + tileSize/2);
+                            ctx.lineTo(x * tileSize + tileSize, y * tileSize + tileSize/2);
+                            // Вертикальная дорога
+                            ctx.moveTo(x * tileSize + tileSize/2, y * tileSize);
+                            ctx.lineTo(x * tileSize + tileSize/2, y * tileSize + tileSize);
+                        }
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                }
+            }
+
+            // Рисуем игрока
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            ctx.rotate(player.angle);
+            // Машина (прямоугольник)
+            ctx.fillStyle = player.color;
+            ctx.fillRect(-player.size/2, -player.size/3, player.size, player.size/1.5);
+            // Лобовое стекло
+            ctx.fillStyle = '#111';
+            ctx.fillRect(player.size/4, -player.size/4, player.size/4, player.size/2);
+            ctx.restore();
+
+            // Камера следует за игроком
+            // (В этом коде камера статична, но мы можем добавить следование позже)
+        }
+
+        // --- ИГРОВОЙ ЦИКЛ ---
+        let lastTime = 0;
+        function gameLoop(time) {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
