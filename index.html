@@ -3,26 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Rebate - Alpha 0.2</title>
+    <title>Rebate - Alpha 0.3</title>
     <style>
         body { margin: 0; padding: 0; overflow: hidden; background: #111; touch-action: none; font-family: Arial; }
         canvas { display: block; }
         #ui { position: absolute; top: 10px; left: 10px; color: white; font-size: 14px; z-index: 10; pointer-events: none; background: rgba(0,0,0,0.5); padding: 5px; border-radius: 5px; }
         
-        /* Джойстик */
+        /* Джойстик - ФИКСИРОВАННЫЙ */
         #joystick-base {
-            position: absolute; bottom: 50px; left: 50px; width: 120px; height: 120px;
+            position: absolute; bottom: 30px; left: 30px; width: 120px; height: 120px;
             background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3);
             border-radius: 50%; z-index: 20; display: none;
         }
         #joystick-stick {
             position: absolute; top: 35px; left: 35px; width: 50px; height: 50px;
-            background: rgba(255,255,255,0.4); border-radius: 50%; z-index: 21;
+            background: rgba(255,255,255,0.5); border-radius: 50%; z-index: 21;
+            pointer-events: none; /* Чтобы палец не цеплялся за стик */
         }
     </style>
 </head>
 <body>
-    <div id="ui">Rebate Alpha 0.2<br>WASD / Джойстик</div>
+    <div id="ui">Rebate Alpha 0.3<br>WASD / Джойстик</div>
     <div id="joystick-base"><div id="joystick-stick"></div></div>
     <canvas id="gameCanvas"></canvas>
 
@@ -69,7 +70,7 @@
         window.addEventListener('keydown', e => keys[e.key] = true);
         window.addEventListener('keyup', e => keys[e.key] = false);
 
-        // Тач
+        // Тач (Фиксированный джойстик)
         const joyBase = document.getElementById('joystick-base');
         const joyStick = document.getElementById('joystick-stick');
         let joyActive = false;
@@ -78,26 +79,39 @@
 
         if ('ontouchstart' in window) {
             joyBase.style.display = 'block';
+            // Позиция центра базы джойстика
+            const baseRect = joyBase.getBoundingClientRect();
+            const centerX = baseRect.left + baseRect.width / 2;
+            const centerY = baseRect.top + baseRect.height / 2;
+
+            // Обрабатываем нажатия на левую часть экрана (там где джойстик)
             canvas.addEventListener('touchstart', e => {
                 const touch = e.touches[0];
-                if (touch.clientX < W/2) {
+                // Если палец попал в зону джойстика
+                if (touch.clientX < W/2 && touch.clientY > H/2) {
                     joyActive = true;
-                    joyStart = { x: touch.clientX, y: touch.clientY };
-                    joyBase.style.left = (touch.clientX - 60) + 'px';
-                    joyBase.style.top = (touch.clientY - 60) + 'px';
-                    joyStick.style.transform = 'translate(0px, 0px)';
+                    joyStart = { x: centerX, y: centerY }; // Стартовая точка - центр базы
                 }
             });
+            
             canvas.addEventListener('touchmove', e => {
                 if (!joyActive) return;
                 const touch = e.touches[0];
                 let dx = touch.clientX - joyStart.x;
                 let dy = touch.clientY - joyStart.y;
                 let dist = Math.hypot(dx, dy);
-                if (dist > 40) { dx = dx/dist*40; dy = dy/dist*40; }
+                
+                // Ограничиваем движение стика радиусом базы
+                const maxDist = 35; 
+                if (dist > maxDist) { 
+                    dx = dx/dist*maxDist; 
+                    dy = dy/dist*maxDist; 
+                }
+                
                 joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
-                joyDir = { x: dx/40, y: dy/40 };
+                joyDir = { x: dx/maxDist, y: dy/maxDist };
             });
+            
             canvas.addEventListener('touchend', () => {
                 joyActive = false;
                 joyStick.style.transform = 'translate(0px, 0px)';
@@ -165,7 +179,7 @@
         // --- ОТРИСОВКА ---
         function draw() {
             ctx.clearRect(0, 0, W, H);
-            ctx.fillStyle = '#222'; // Цвет земли
+            ctx.fillStyle = '#222'; 
             ctx.fillRect(0, 0, W, H);
 
             ctx.save();
@@ -198,18 +212,16 @@
                         ctx.fillStyle = '#1a1a1a';
                         ctx.fillRect(px, py, tileSize, tileSize);
                         
-                        // Разметка (только если соседняя клетка тоже дорога)
+                        // Разметка
                         ctx.strokeStyle = '#ffaa00';
                         ctx.lineWidth = 3;
                         ctx.setLineDash([15, 15]);
                         ctx.beginPath();
                         
-                        // Горизонтальная линия
                         if(x+1 < map[y].length && map[y][x+1] === 0) {
                             ctx.moveTo(px + tileSize/2, py + tileSize/2);
                             ctx.lineTo(px + tileSize, py + tileSize/2);
                         }
-                        // Вертикальная линия
                         if(y+1 < map.length && map[y+1][x] === 0) {
                             ctx.moveTo(px + tileSize/2, py + tileSize/2);
                             ctx.lineTo(px + tileSize/2, py + tileSize);
