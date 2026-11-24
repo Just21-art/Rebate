@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Rebate - Alpha 0.3</title>
+    <title>Rebate - Alpha 0.4 (Traffic)</title>
     <style>
         body { margin: 0; padding: 0; overflow: hidden; background: #111; touch-action: none; font-family: Arial; }
         canvas { display: block; }
         #ui { position: absolute; top: 10px; left: 10px; color: white; font-size: 14px; z-index: 10; pointer-events: none; background: rgba(0,0,0,0.5); padding: 5px; border-radius: 5px; }
         
-        /* Джойстик - ФИКСИРОВАННЫЙ */
+        /* Джойстик */
         #joystick-base {
             position: absolute; bottom: 30px; left: 30px; width: 120px; height: 120px;
             background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3);
@@ -18,12 +18,12 @@
         #joystick-stick {
             position: absolute; top: 35px; left: 35px; width: 50px; height: 50px;
             background: rgba(255,255,255,0.5); border-radius: 50%; z-index: 21;
-            pointer-events: none; /* Чтобы палец не цеплялся за стик */
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
-    <div id="ui">Rebate Alpha 0.3<br>WASD / Джойстик</div>
+    <div id="ui">Rebate Alpha 0.4<br>WASD / Джойстик<br>Осторожно, трафик!</div>
     <div id="joystick-base"><div id="joystick-stick"></div></div>
     <canvas id="gameCanvas"></canvas>
 
@@ -62,6 +62,24 @@
             color: '#ffd700'
         };
 
+        // --- МАШИНЫ ИИ ---
+        const aiCars = [];
+        function spawnAiCar(x, y, dirX, dirY, color) {
+            aiCars.push({
+                x: x, y: y,
+                w: 30, h: 40, // Габариты
+                dirX: dirX, dirY: dirY, // Направление (1, -1, 0)
+                speed: 2 + Math.random(),
+                color: color,
+                angle: Math.atan2(dirY, dirX) + Math.PI/2 // Поворот в сторону движения
+            });
+        }
+
+        // Спавним пару машин на дорогах
+        spawnAiCar(3 * tileSize + tileSize/2, 2 * tileSize + 20, 1, 0, '#e94560'); // Едет вправо
+        spawnAiCar(2 * tileSize + 20, 4 * tileSize + tileSize/2, 0, -1, '#4dabf7'); // Едет вверх
+        spawnAiCar(4 * tileSize + 20, 6 * tileSize + tileSize/2, 0, 1, '#51cf66'); // Едет вниз
+
         // --- КАМЕРА ---
         const camera = { x: 0, y: 0 };
 
@@ -70,7 +88,7 @@
         window.addEventListener('keydown', e => keys[e.key] = true);
         window.addEventListener('keyup', e => keys[e.key] = false);
 
-        // Тач (Фиксированный джойстик)
+        // Джойстик
         const joyBase = document.getElementById('joystick-base');
         const joyStick = document.getElementById('joystick-stick');
         let joyActive = false;
@@ -79,39 +97,28 @@
 
         if ('ontouchstart' in window) {
             joyBase.style.display = 'block';
-            // Позиция центра базы джойстика
             const baseRect = joyBase.getBoundingClientRect();
             const centerX = baseRect.left + baseRect.width / 2;
             const centerY = baseRect.top + baseRect.height / 2;
 
-            // Обрабатываем нажатия на левую часть экрана (там где джойстик)
             canvas.addEventListener('touchstart', e => {
                 const touch = e.touches[0];
-                // Если палец попал в зону джойстика
                 if (touch.clientX < W/2 && touch.clientY > H/2) {
                     joyActive = true;
-                    joyStart = { x: centerX, y: centerY }; // Стартовая точка - центр базы
+                    joyStart = { x: centerX, y: centerY };
                 }
             });
-            
             canvas.addEventListener('touchmove', e => {
                 if (!joyActive) return;
                 const touch = e.touches[0];
                 let dx = touch.clientX - joyStart.x;
                 let dy = touch.clientY - joyStart.y;
                 let dist = Math.hypot(dx, dy);
-                
-                // Ограничиваем движение стика радиусом базы
                 const maxDist = 35; 
-                if (dist > maxDist) { 
-                    dx = dx/dist*maxDist; 
-                    dy = dy/dist*maxDist; 
-                }
-                
+                if (dist > maxDist) { dx = dx/dist*maxDist; dy = dy/dist*maxDist; }
                 joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
                 joyDir = { x: dx/maxDist, y: dy/maxDist };
             });
-            
             canvas.addEventListener('touchend', () => {
                 joyActive = false;
                 joyStick.style.transform = 'translate(0px, 0px)';
@@ -119,14 +126,15 @@
             });
         }
 
-        // --- КОЛЛИЗИИ ---
-        function checkCollision(newX, newY) {
-            const half = player.size / 2;
+        // --- КОЛЛИЗИИ (ЗДАНИЯ) ---
+        function checkCollision(newX, newY, sizeW, sizeH) {
+            const halfW = sizeW / 2;
+            const halfH = sizeH / 2;
             const corners = [
-                {x: newX - half, y: newY - half},
-                {x: newX + half, y: newY - half},
-                {x: newX - half, y: newY + half},
-                {x: newX + half, y: newY + half}
+                {x: newX - halfW, y: newY - halfH},
+                {x: newX + halfW, y: newY - halfH},
+                {x: newX - halfW, y: newY + halfH},
+                {x: newX + halfW, y: newY + halfH}
             ];
             for (let c of corners) {
                 const gridX = Math.floor(c.x / tileSize);
@@ -143,13 +151,11 @@
             let moveX = 0;
             let moveY = 0;
 
-            // Компьютер
             if (keys['w'] || keys['ArrowUp'] || keys['ц']) moveY -= 1;
             if (keys['s'] || keys['ArrowDown'] || keys['ы']) moveY += 1;
             if (keys['a'] || keys['ArrowLeft'] || keys['ф']) moveX -= 1;
             if (keys['d'] || keys['ArrowRight'] || keys['в']) moveX += 1;
             
-            // Телефон
             if (Math.abs(joyDir.x) > 0.2) moveX = joyDir.x;
             if (Math.abs(joyDir.y) > 0.2) moveY = joyDir.y;
 
@@ -167,8 +173,25 @@
                 const newX = player.x + moveX;
                 const newY = player.y + moveY;
 
-                if (!checkCollision(newX, player.y)) player.x = newX;
-                if (!checkCollision(player.x, newY)) player.y = newY;
+                if (!checkCollision(newX, player.y, player.size, player.size/1.5)) player.x = newX;
+                if (!checkCollision(player.x, newY, player.size, player.size/1.5)) player.y = newY;
+            }
+
+            // --- ДВИЖЕНИЕ ИИ МАШИН ---
+            for (let car of aiCars) {
+                let nextX = car.x + car.dirX * car.speed;
+                let nextY = car.y + car.dirY * car.speed;
+                
+                // Проверка, чтобы машина не врезалась в здание
+                if (!checkCollision(nextX, nextY, car.w, car.h)) {
+                    car.x = nextX;
+                    car.y = nextY;
+                } else {
+                    // Если врезалась, меняем направление (для простоты)
+                    car.dirX *= -1;
+                    car.dirY *= -1;
+                    car.angle += Math.PI; // Разворот
+                }
             }
 
             // Плавное следование камеры за игроком
@@ -192,13 +215,10 @@
                     let py = y * tileSize;
 
                     if (map[y][x] === 1) {
-                        // Здание
                         ctx.fillStyle = '#444';
                         ctx.fillRect(px, py, tileSize, tileSize);
                         ctx.fillStyle = '#333';
                         ctx.fillRect(px + 5, py + 5, tileSize - 10, tileSize - 10);
-                        
-                        // Окна
                         ctx.fillStyle = '#ffeb3b';
                         for(let i=0; i<3; i++){
                             for(let j=0; j<3; j++){
@@ -208,16 +228,12 @@
                             }
                         }
                     } else {
-                        // Дорога
                         ctx.fillStyle = '#1a1a1a';
                         ctx.fillRect(px, py, tileSize, tileSize);
-                        
-                        // Разметка
                         ctx.strokeStyle = '#ffaa00';
                         ctx.lineWidth = 3;
                         ctx.setLineDash([15, 15]);
                         ctx.beginPath();
-                        
                         if(x+1 < map[y].length && map[y][x+1] === 0) {
                             ctx.moveTo(px + tileSize/2, py + tileSize/2);
                             ctx.lineTo(px + tileSize, py + tileSize/2);
@@ -232,20 +248,31 @@
                 }
             }
 
+            // Рисуем ИИ машины
+            for (let car of aiCars) {
+                ctx.save();
+                ctx.translate(car.x, car.y);
+                ctx.rotate(car.angle);
+                // Тень
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(-car.w/2 + 2, -car.h/3 + 2, car.w, car.h/1.5);
+                // Кузов
+                ctx.fillStyle = car.color;
+                ctx.fillRect(-car.w/2, -car.h/3, car.w, car.h/1.5);
+                // Стекло
+                ctx.fillStyle = '#111';
+                ctx.fillRect(car.w/6, -car.h/4, car.w/3, car.h/2);
+                ctx.restore();
+            }
+
             // Рисуем игрока
             ctx.save();
             ctx.translate(player.x, player.y);
             ctx.rotate(player.angle);
-            
-            // Тень
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
             ctx.fillRect(-player.size/2 + 2, -player.size/3 + 2, player.size, player.size/1.5);
-            
-            // Кузов
             ctx.fillStyle = player.color;
             ctx.fillRect(-player.size/2, -player.size/3, player.size, player.size/1.5);
-            
-            // Лобовое стекло
             ctx.fillStyle = '#111';
             ctx.fillRect(player.size/6, -player.size/4, player.size/3, player.size/2);
             ctx.restore();
