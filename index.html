@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Rebate - Alpha 0.7 (Hard Collisions)</title>
+    <title>Rebate - Alpha 0.9 (Highway Traffic)</title>
     <style>
         body { margin: 0; padding: 0; overflow: hidden; background: #111; touch-action: none; font-family: Arial; }
         canvas { display: block; }
@@ -22,7 +22,7 @@
     </style>
 </head>
 <body>
-    <div id="ui">Rebate Alpha 0.7<br>WASD / Джойстик<br>Жесткие столкновения</div>
+    <div id="ui">Rebate Alpha 0.9<br>WASD / Джойстик<br>Трафик на шоссе</div>
     <div id="joystick-base"><div id="joystick-stick"></div></div>
     <canvas id="gameCanvas"></canvas>
 
@@ -61,30 +61,30 @@
             color: '#ffd700'
         };
 
-        // --- МАШИНЫ ИИ ---
+        // --- МАШИНЫ ИИ (ТОЛЬКО ПО ШОССЕ) ---
         const aiCars = [];
-        const DIRS = [
-            { x: 1, y: 0, angle: Math.PI/2 }, 
-            { x: 0, y: 1, angle: Math.PI }, 
-            { x: -1, y: 0, angle: -Math.PI/2 }, 
-            { x: 0, y: -1, angle: 0 }
-        ];
-
-        function spawnAiCar(x, y, dirIndex, color) {
+        
+        function spawnCar(x, y, dir, color) {
             aiCars.push({
                 x: x, y: y,
                 w: 30, h: 40,
-                dir: dirIndex,
+                dir: dir, // 0 - вправо, 1 - влево, 2 - вниз, 3 - вверх
                 speed: 2,
-                color: color,
-                targetX: x, 
-                targetY: y
+                color: color
             });
         }
 
-        spawnAiCar(3 * tileSize + tileSize/2, 2 * tileSize + 20, 0, '#e94560');
-        spawnAiCar(2 * tileSize + 20, 4 * tileSize + tileSize/2, 1, '#4dabf7');
-        spawnAiCar(4 * tileSize + 20, 6 * tileSize + tileSize/2, 2, '#51cf66');
+        // Спавним 5 машин на дорогах (вертикальные и горизонтальные)
+        // Горизонтальная дорога (y = 2 * tileSize + 50)
+        spawnCar(1 * tileSize, 2 * tileSize + 50, 0, '#e94560'); // Красная вправо
+        spawnCar(5 * tileSize, 2 * tileSize + 50, 1, '#4dabf7'); // Синяя влево
+        
+        // Вертикальная дорога (x = 3 * tileSize + 50)
+        spawnCar(3 * tileSize + 50, 1 * tileSize, 2, '#51cf66'); // Зеленая вниз
+        spawnCar(3 * tileSize + 50, 5 * tileSize, 3, '#fca311'); // Оранжевая вверх
+        
+        // Еще одна на горизонтальной дороге
+        spawnCar(4 * tileSize, 6 * tileSize + 50, 0, '#9d4edd'); // Фиолетовая вправо
 
         // --- КАМЕРА ---
         const camera = { x: 0, y: 0 };
@@ -131,7 +131,7 @@
             });
         }
 
-        // --- КОЛЛИЗИИ СТЕН ---
+        // --- КОЛЛИЗИИ СТЕН (ТОЛЬКО ДЛЯ ИГРОКА) ---
         function checkWallCollision(newX, newY, sizeW, sizeH) {
             const halfW = sizeW / 2;
             const halfH = sizeH / 2;
@@ -149,14 +149,6 @@
                 } else { return true; }
             }
             return false;
-        }
-
-        // --- КОЛЛИЗИИ МАШИН (AABB) ---
-        function checkCarCollision(car1, car2) {
-            return (car1.x - car1.w/2 < car2.x + car2.w/2 &&
-                    car1.x + car1.w/2 > car2.x - car2.w/2 &&
-                    car1.y - car1.h/2 < car2.y + car2.h/2 &&
-                    car1.y + car1.h/2 > car2.y - car2.h/2);
         }
 
         // --- ОБНОВЛЕНИЕ ---
@@ -191,58 +183,18 @@
                 if (!checkWallCollision(player.x, newY, player.size, player.size/1.5)) player.y = newY;
             }
 
-            // --- УМНЫЙ ТРАФИК С КОЛЛИЗИЯМИ ---
+            // --- ДВИЖЕНИЕ МАШИН ИИ (ПРОСТО ПО ПРЯМОЙ) ---
             for (let car of aiCars) {
-                let dx = car.targetX - car.x;
-                let dy = car.targetY - car.y;
-                let dist = Math.hypot(dx, dy);
+                if (car.dir === 0) car.x += car.speed; // Вправо
+                if (car.dir === 1) car.x -= car.speed; // Влево
+                if (car.dir === 2) car.y += car.speed; // Вниз
+                if (car.dir === 3) car.y -= car.speed; // Вверх
 
-                if (dist < 2) {
-                    let gridX = Math.floor(car.x / tileSize);
-                    let gridY = Math.floor(car.y / tileSize);
-                    let possibleDirs = [];
-
-                    if (gridY + 1 < map.length && map[gridY + 1][gridX] === 0) possibleDirs.push(1);
-                    if (gridY - 1 >= 0 && map[gridY - 1][gridX] === 0) possibleDirs.push(3);
-                    if (gridX + 1 < map[0].length && map[gridY][gridX + 1] === 0) possibleDirs.push(0);
-                    if (gridX - 1 >= 0 && map[gridY][gridX - 1] === 0) possibleDirs.push(2);
-
-                    let oppositeDir = (car.dir + 2) % 4;
-                    possibleDirs = possibleDirs.filter(d => d !== oppositeDir);
-
-                    if (possibleDirs.length > 0) {
-                        car.dir = possibleDirs[Math.floor(Math.random() * possibleDirs.length)];
-                    }
-                    
-                    car.targetX = (gridX + DIRS[car.dir].x) * tileSize + tileSize/2;
-                    car.targetY = (gridY + DIRS[car.dir].y) * tileSize + tileSize/2;
-                } else {
-                    let nextX = car.x + DIRS[car.dir].x * car.speed;
-                    let nextY = car.y + DIRS[car.dir].y * car.speed;
-                    
-                    let playerBox = {x: player.x, y: player.y, w: player.size, h: player.size/1.5};
-                    let carBoxNext = {x: nextX, y: nextY, w: car.w, h: car.h};
-                    
-                    let hitPlayer = checkCarCollision(playerBox, carBoxNext);
-
-                    let hitCar = false;
-                    for (let other of aiCars) {
-                        if (other === car) continue;
-                        if (checkCarCollision(other, carBoxNext)) {
-                            hitCar = true;
-                            break;
-                        }
-                    }
-
-                    // Если машинка врезалась — откатываем назад
-                    if (hitPlayer || hitCar) {
-                        // Откат на предыдущую позицию (или просто стоп)
-                        // В данном случае просто не двигаемся вперед
-                    } else {
-                        car.x = nextX;
-                        car.y = nextY;
-                    }
-                }
+                // Зацикливаем машины, чтобы они не уезжали далеко
+                if (car.x > 10 * tileSize) car.x = 0;
+                if (car.x < 0) car.x = 10 * tileSize;
+                if (car.y > 10 * tileSize) car.y = 0;
+                if (car.y < 0) car.y = 10 * tileSize;
             }
 
             camera.x = player.x - W / 2;
@@ -302,7 +254,16 @@
             for (let car of aiCars) {
                 ctx.save();
                 ctx.translate(car.x, car.y);
-                ctx.rotate(DIRS[car.dir].angle);
+                
+                // Поворот в зависимости от направления
+                let angle = 0;
+                if (car.dir === 0) angle = Math.PI/2;
+                if (car.dir === 1) angle = -Math.PI/2;
+                if (car.dir === 2) angle = Math.PI;
+                if (car.dir === 3) angle = 0;
+                
+                ctx.rotate(angle);
+                
                 ctx.fillStyle = 'rgba(0,0,0,0.5)';
                 ctx.fillRect(-car.w/2 + 2, -car.h/3 + 2, car.w, car.h/1.5);
                 ctx.fillStyle = car.color;
